@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agent_sleuth"
+version = "0.0.1"
+description = "Prevents untrusted data from triggering consequential actions in your agent."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Arnav Tripathy" },
+    { name = "Noah Wong" },
+]
+keywords = ["llm", "agent", "security", "ifc", "prompt-injection", "taint"]
+# Core has ZERO agent-framework dependencies. PyYAML is optional (config.py degrades without it).
+dependencies = []
+
+[project.optional-dependencies]
+config = ["pyyaml>=6.0"]
+langchain = ["langchain-core>=0.1"]
+agentdojo = ["agentdojo"]
+dev = ["pytest>=7.0", "ruff>=0.1", "pyyaml>=6.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["agent_sleuth"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+# The system anyio pytest plugin clashes with this Python; it isn't needed here.
+addopts = "-p no:anyio"
+testpaths = ["tests"]
