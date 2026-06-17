@@ -13,7 +13,7 @@ The Engine owns no framework imports, keeping ``core/`` and this glue dependency
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from .core.errors import TaintViolationError
 from .core.fingerprint import extract_values
@@ -32,8 +32,7 @@ class Engine:
         self.store = store
         self.violations: list[Violation] = []
         self.query: str | None = None
-        # Optional callback for confirm mode: (violation, rendered) -> bool (allow?).
-        self.confirm_callback = None
+        self.confirm_callback: Callable[[Violation, str], bool] | None = None
 
     def set_query(self, query: str | None) -> None:
         self.query = query
