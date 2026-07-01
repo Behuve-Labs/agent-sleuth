@@ -18,7 +18,7 @@ from typing import Any
 from .core.errors import TaintViolationError
 from .core.fingerprint import extract_values
 from .core.lineage import Violation, check
-from .core.policy import IFCPolicy
+from .core.policy import IFCPolicy, derive_plan_allowlist
 from .core.store import TaintStore
 from .core.trace import render
 from .core.values import Trust
@@ -34,9 +34,19 @@ class Engine:
         self.query: str | None = None
         # Optional callback for confirm mode: (violation, rendered) -> bool (allow?).
         self.confirm_callback = None
+        # v1 integrity: derive the plan-allowlist from the trusted query when the policy opts
+        # in (plan_mode). Off by default so v0 confidentiality behavior is unchanged.
+        self.plan_mode = False
 
     def set_query(self, query: str | None) -> None:
         self.query = query
+        # Re-derive the query-authorized consequential tools for the integrity leg (§7).
+        if self.plan_mode:
+            self.policy.plan_allowlist = derive_plan_allowlist(
+                query, self.policy.consequential_actions
+            )
+        else:
+            self.policy.plan_allowlist = None
 
     def on_tool_call(self, name: str, args: dict[str, Any]) -> Violation | None:
         """Ingress check for a pending tool call. Returns the Violation if one fired."""

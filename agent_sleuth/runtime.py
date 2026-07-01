@@ -31,9 +31,11 @@ class Sleuth:
         untrusted: list[str] | None = None,
         consequential: list[str] | None = None,
         destinations: list[str] | None = None,
+        denylist: list[str] | None = None,
         mode: str = "audit",
         policy: IFCPolicy | None = None,
         strict: bool = False,
+        plan_mode: bool = False,
         confirm_callback: Callable | None = None,
     ):
         if policy is not None:
@@ -42,17 +44,20 @@ class Sleuth:
             # Pure name-based defaults (§4.4): most developers never touch the lists.
             self.policy = IFCPolicy.from_defaults(mode=mode)
             self.policy.destination_allowlist = destinations or []
+            self.policy.destination_denylist = denylist or []
             self.policy.strict = strict
         else:
             self.policy = IFCPolicy(
                 untrusted_sources=untrusted or [],
                 consequential_actions=consequential or [],
                 destination_allowlist=destinations or [],
+                destination_denylist=denylist or [],
                 mode=mode,
                 strict=strict,
             )
         self.store = TaintStore()
         self.engine = Engine(self.policy, self.store)
+        self.engine.plan_mode = plan_mode  # v1 integrity leg (opt-in, §7)
         self.engine.confirm_callback = confirm_callback
         self.agent = agent
 

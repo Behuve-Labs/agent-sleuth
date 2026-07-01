@@ -74,20 +74,46 @@ def check(
     policy: IFCPolicy,
     query: str | None = None,
 ) -> Violation | None:
-    """Run the v0 lineage algorithm. Returns a Violation or None (allow)."""
+    """Run the v1 lineage + integrity algorithm. Returns a Violation or None (allow)."""
     # 1. Not consequential → allow.
     if not policy.is_consequential(tool_name):
         return None
 
-    # 2. Destination allowlisted (config) or in trusted query → allow.
-    destination = policy.resolve_destination(tool_name, args)
-    if policy.is_allowed_destination(destination, query):
+    destinations = policy.resolve_destinations(tool_name, args)
+    authorized, offending = policy.authorize_destinations(destinations, query)
+    # `destination` for the trace: the specific offending recipient if known, else the set.
+    destination = offending or (", ".join(destinations) if destinations else None)
+
+    # 2. Denylist (v1, §13): a denied destination is refused outright — deny > allow, and
+    # independent of lineage (structured negative trust).
+    if offending is not None and policy.is_denied_destination(offending):
+        return Violation(
+            sink_tool=tool_name, sink_field=policy._destination_field(tool_name, args),
+            sink_arg_value=offending, matched_value=offending,
+            source_tool="(denylist)", source_step=None, source_field_path=None,
+            destination=offending, mode=policy.mode,
+            reason="destination is on the denylist",
+        )
+
+    # 3. Integrity leg (v1, §7): a consequential tool that is not in the query-derived plan
+    # is an out-of-plan action (control-flow hijack) — blocked even with no untrusted bytes.
+    if policy.plan_allowlist is not None and tool_name not in policy.plan_allowlist:
+        return Violation(
+            sink_tool=tool_name, sink_field=None, sink_arg_value="",
+            matched_value="(out of plan)", source_tool="(plan-allowlist)",
+            source_step=None, source_field_path=None, destination=destination,
+            mode=policy.mode,
+            reason="out-of-plan consequential action (not authorized by the trusted query)",
+        )
+
+    # 4. Every destination authorized (allowlist / trusted query) → no exfil egress → allow.
+    if authorized:
         return None
 
     arg_values = _iter_arg_values(args)
     untrusted = store.untrusted_values()
 
-    # 3. For each value in the sink args, test value-lineage against untrusted fingerprints.
+    # 5. For each value in the sink args, test value-lineage against untrusted fingerprints.
     for tv in untrusted:
         src_text = tv.value if isinstance(tv.value, str) else str(tv.value)
         src_fp = fingerprint(src_text)
@@ -110,7 +136,7 @@ def check(
                     mode=policy.mode,
                 )
 
-    # 5. Strict / run-level mode: no untrusted value present but run is tainted → violation.
+    # 6. Strict / run-level mode: no untrusted value present but run is tainted → violation.
     if policy.strict and store.is_run_tainted():
         return Violation(
             sink_tool=tool_name,
