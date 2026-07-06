@@ -13,7 +13,7 @@ The Engine owns no framework imports, keeping ``core/`` and this glue dependency
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from .core.errors import TaintViolationError
 from .core.fingerprint import extract_values
@@ -33,7 +33,7 @@ class Engine:
         self.violations: list[Violation] = []
         self.query: str | None = None
         # Optional callback for confirm mode: (violation, rendered) -> bool (allow?).
-        self.confirm_callback = None
+        self.confirm_callback: Callable[[Violation, str], bool] | None = None
         # v1 integrity: derive the plan-allowlist from the trusted query when the policy opts
         # in (plan_mode). Off by default so v0 confidentiality behavior is unchanged.
         self.plan_mode = False

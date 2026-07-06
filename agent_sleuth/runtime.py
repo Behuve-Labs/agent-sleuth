@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from .core.errors import TaintViolationError
+from .core.lineage import Violation
 from .core.policy import IFCPolicy
 from .core.store import TaintStore
 from .core.trace import render
@@ -36,7 +37,7 @@ class Sleuth:
         policy: IFCPolicy | None = None,
         strict: bool = False,
         plan_mode: bool = False,
-        confirm_callback: Callable | None = None,
+        confirm_callback: Callable[[Violation, str], bool] | None = None,
     ):
         if policy is not None:
             self.policy = policy

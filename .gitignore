@@ -1,4 +1,12 @@
+# Build
+dist/
+*.egg-info/
+
+# Python
 __pycache__/
+*.py[cod]
 *.pyc
+
+# Test / lint caches
 .pytest_cache/
 .ruff_cache/
