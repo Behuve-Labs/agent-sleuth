@@ -15,10 +15,14 @@ framework-agnostic so adding CrewAI / ADK / raw agents never touches the engine.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 from uuid import UUID
 
+from ..core.errors import TaintViolationError
 from ..engine import Engine
+
+logger = logging.getLogger("agent_sleuth")
 
 try:  # pragma: no cover - import shim
     from langchain_core.callbacks import BaseCallbackHandler
@@ -58,6 +62,12 @@ def _extract_content(output: Any) -> Any:
 class IFCCallbackHandler(BaseCallbackHandler):
     """Sync LangChain callback handler driving the Sleuth engine at the tool boundary."""
 
+    # LangChain's callback manager swallows handler exceptions unless raise_error is True;
+    # without this, an enforce-mode TaintViolationError would be logged but the sink tool
+    # would STILL execute. We re-raise only our intentional violation (see _start); any
+    # internal Sleuth error is caught and swallowed so it never breaks the host agent.
+    raise_error: bool = True
+
     def __init__(self, engine: Engine):
         if not _HAS_LANGCHAIN:
             raise ImportError(
@@ -72,12 +82,21 @@ class IFCCallbackHandler(BaseCallbackHandler):
         name = (serialized or {}).get("name", "tool")
         if run_id is not None:
             self._run_tools[run_id] = name
-        self.engine.on_tool_call(name, _parse_input(input_str, inputs))
+        try:
+            # Raises TaintViolationError in enforce mode (and confirm-deny) to halt the call.
+            self.engine.on_tool_call(name, _parse_input(input_str, inputs))
+        except TaintViolationError:
+            raise  # intended enforcement block — let it propagate to halt the tool
+        except Exception:  # internal Sleuth bug: never break the host agent
+            logger.exception("agent_sleuth: internal error in ingress check; allowing call")
 
     def _end(self, output, run_id, kwargs):
         name = self._run_tools.pop(run_id, None) if run_id is not None else None
         name = name or kwargs.get("name") or "tool"
-        self.engine.on_tool_result(name, _extract_content(output))
+        try:
+            self.engine.on_tool_result(name, _extract_content(output))
+        except Exception:  # egress labeling never intentionally raises
+            logger.exception("agent_sleuth: internal error labeling tool output; skipping")
 
     # --- ingress -----------------------------------------------------------------
     def on_tool_start(

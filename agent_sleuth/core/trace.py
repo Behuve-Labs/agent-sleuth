@@ -20,6 +20,18 @@ def render(violation: Violation) -> str:
     v = violation
     verb = "BLOCKED" if v.blocked else "WOULD BLOCK"
 
+    # v1 non-lineage violations (denylist / out-of-plan integrity) have no untrusted-value
+    # provenance chain — render them as a policy decision, not a source→sink flow.
+    if v.source_tool in ("(denylist)", "(plan-allowlist)"):
+        lines = [f"{verb}: {v.sink_tool}() refused by policy"]
+        if v.destination:
+            lines.append(f"  Destination: {_short(v.destination)}")
+        lines.append(f"  Reason: {v.reason}")
+        lines.append(
+            f"  Action: {'blocked, call halted' if v.blocked else 'logged (audit mode), call allowed'}"
+        )
+        return "\n".join(lines)
+
     src = v.source_tool
     if v.source_step is not None:
         src += f" (step {v.source_step}, untrusted)"

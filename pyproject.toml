@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent_sleuth"
-version = "0.0.1"
+version = "0.1.0"
 description = "Prevents untrusted data from triggering consequential actions in your agent."
 readme = "README.md"
 license = {file = "LICENSE.md"}

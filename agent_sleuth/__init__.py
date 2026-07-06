@@ -25,7 +25,7 @@ try:
     from importlib.metadata import version as _version
     __version__ = _version("agent_sleuth")
 except Exception:
-    __version__ = "0.0.1"
+    __version__ = "0.1.0"
 
 
 def tracked_tool(engine, name=None):

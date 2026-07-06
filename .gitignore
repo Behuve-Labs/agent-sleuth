@@ -5,6 +5,7 @@ dist/
 # Python
 __pycache__/
 *.py[cod]
+*.pyc
 
 # Test / lint caches
 .pytest_cache/

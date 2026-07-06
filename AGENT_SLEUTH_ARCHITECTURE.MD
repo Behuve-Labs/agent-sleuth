@@ -510,3 +510,56 @@ When that loop works end-to-end on an **unmodified** agent, v0 is done.
 > denylist entry), which deterministically overrides any prose-extracted or allowlisted
 > destination (deny > allow > prose-extracted). Revisit only if structured config proves
 > insufficient in practice; do not attempt prose-negation parsing as a default path.
+
+---
+
+## 14. v1 implementation status (shipped in 0.1.0)
+
+**Motivation — the measured problem.** On the AgentDojo `workspace` suite the v0 enforce
+policy cut Targeted-ASR from 0.329 → 0.104 but dropped no-attack Utility 0.775 → 0.575. Root
+cause, confirmed by replaying the cached transcripts: v0 blocks *any* consequential call that
+carries tool-read data to a destination not named verbatim in the query. But a workspace
+assistant's whole job is moving the user's own data to recipients derived from the user's own
+inbox/files/contacts — so legitimate "reply to the sender", "invite the team", "share with a
+colleague" all trip the trifecta. The destination is real, it just isn't spelled in the query.
+
+**What 0.1.0 adds (confidentiality-side, utility recovery):**
+
+1. **Pattern allow/denylist** (`core/policy.py::_dest_matches`) — exact, email-domain
+   (`@corp.com`), suffix (`.corp.com`), and glob. A single `@corp.com` allowlist entry lets the
+   assistant reach any internal colleague while still blocking external exfil. This is the §13
+   "configurable allowlist" made real.
+2. **Denylist with deny > allow precedence** (`destination_denylist`) — the structured
+   negative-trust channel from §13, refused even if allowlisted or query-named.
+3. **Multi-destination authorization** (`resolve_destinations` / `authorize_destinations`) — a
+   list-valued sink (`send_email(recipients=[...])`, calendar `participants`) is authorized only
+   when *every* destination is authorized; the offending recipient is named in the trace.
+4. **Destination-field registry extended** — calendar `participants` and `share_file.email` are
+   now recognized destinations, so internal invites/shares are authorizable (this, not the email
+   allowlist alone, was the dominant workspace false positive).
+
+**What 0.1.0 adds (integrity-side, opt-in):**
+
+5. **Plan-allowlist** (`derive_plan_allowlist`, `Sleuth(plan_mode=True)`) — the §7 control-flow
+   leg. At run start the trusted query's *action verbs* fix the set of allowed consequential
+   tools; an out-of-plan call (e.g. injected `delete`/`send`) is blocked even with no untrusted
+   bytes. Off by default: delegation-style queries ("do what this email says") name no verb, so
+   a strict plan would block the delegated action — an accepted, documented tradeoff routed to
+   confirm rather than enabled globally.
+
+**Measured (deterministic replay of the cached undefended workspace transcripts; no LLM):**
+
+| config | benign FP rate (utility damage) | external-exfil sends blocked |
+|---|---|---|
+| v0 (empty allowlist) | 13.9% (5/36) | 114 |
+| **v1 (domain allowlist)** | **8.3% (3/36)** | **125** |
+| v1 (domain allowlist + plan) | 22.2% (8/36) | 121 (+29 out-of-plan aborts) |
+
+v1's domain allowlist ~40% fewer benign blocks *and* more real exfil catches. The **3 residual
+FPs are the honest ceiling**: legit calendar invites to *external* addresses (gmail/yahoo)
+derived from read data — value-identical to exfil-via-invite, and allowlisting those domains
+would reopen the attacker's own channel. These correctly route to **confirm**, not clean-allow.
+
+> Reproduce (LLM-free): `sleuth-agentdojo-testing/.venv-v002/bin/python replay_eval_v1.py
+> --suite workspace`. For the true end-to-end Utility/ASR table, run `run_benchmark.py` with a
+> provider key (spends tokens; not run here).
